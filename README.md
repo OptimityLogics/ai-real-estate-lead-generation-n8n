@@ -96,7 +96,7 @@ Use test contact details and a test spreadsheet while validating the workflow. A
 
 - [Workflow JSON](workflow/real-estate-lead-generation.json)
 - [Detailed Documentation](DOCUMENTATION.md)
-- [Sample Spreadsheet](database/real-estate-leads.xlsx)
+
 
 ## 10. Security & Operational Notes
 
