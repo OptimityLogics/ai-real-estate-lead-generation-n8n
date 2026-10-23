@@ -1,138 +1,136 @@
-# Real Estate Lead Qualification Workflow — Documentation
+# Real Estate Lead Qualification Workflow
 
-**Built by Optimity Logics**  
-**Platform:** n8n  
-**Integrations:** Google Gemini, Google Sheets, Google Calendar, WhatsApp Business Platform, Gmail
+**HOT / COLD lead scoring · n8n workflow · WhatsApp, Calendar and Email**  
+**Date:** 23 October 2026  
+**Built by:** Optimity Logics | info@optimitylogics.com
 
-## 1. Purpose
+> Every new enquiry is checked, scored by AI and followed up automatically.
 
-This workflow automates the initial processing of real-estate enquiries. It validates submitted details, detects duplicate phone numbers, scores buyer intent with AI, records the lead in Google Sheets, and sends follow-up messages. HOT leads also enter an automated meeting-scheduling path.
+## 1. At a glance
 
-## 2. Business Problem
+| Item | Detail |
+|---|---|
+| Task | Real Estate Lead Qualification and Reply Scheduler |
+| What it does | Receives a property enquiry, validates details, skips repeat enquiries, scores the lead with AI, saves it to Google Sheets and replies on WhatsApp. HOT leads also get a Google Meet site visit booked and a confirmation email. |
+| Built with | n8n, Google Gemini, Google Sheets, Google Calendar, WhatsApp, Gmail |
+| Trigger | A POST request to the webhook path `real-estate`, for example from a website enquiry form |
+| Core idea | AI scores the lead from 0 to 100. A score of 80 or more triggers a booked meeting. |
 
-Sales teams often manually validate enquiry details, search for duplicates, assess purchase readiness, find calendar availability, and write initial responses. This can delay follow-up and result in repeated work. The workflow automates these first steps so the team can prioritize and respond faster.
+## 2. The business problem
 
-## 3. Workflow Summary
+Enquiries arrive from forms and ads at any time. Sales staff manually check the details, look for duplicates, assess purchase readiness, find a calendar slot and write the first reply. This can delay follow-up and duplicate work.
 
-1. **Receive:** A POST request arrives at the n8n webhook path `real-estate`.
-2. **Validate:** Required fields, international phone number format, and email format are checked.
-3. **Check duplicates:** The workflow compares the submitted phone number with existing Google Sheets rows after removing non-digit characters.
-4. **Score:** Google Gemini returns a structured qualification result with a score, lead level, suggested properties, follow-up message, and insights.
-5. **Save:** New lead information and its HOT/WARM/COLD status are written to Google Sheets.
-6. **Route:** Scores of 80 or more enter the HOT path. Scores below 80 enter the lower-score path.
-7. **Follow up:** WhatsApp messages and email alerts are sent. HOT leads also get a Google Calendar event with Google Meet details, a confirmation email, and an updated sheet row.
+The manual process is to:
+1. Check that the name, phone, email, budget and location are supplied.
+2. Search the lead list for previous enquiries.
+3. Assess buyer readiness using budget, timeline and intent.
+4. Find a free calendar slot and send a meeting invite.
+5. Send the first WhatsApp message and email, then record the details.
 
-## 4. Required Input
+## 3. The solution
 
-The webhook expects a JSON body with these required fields:
+An n8n workflow handles each enquiry from receipt through the first reply. It validates the submitted details, checks the phone number against Google Sheets, scores the lead with Google Gemini and saves the lead level. A Switch sends scores of 80 or more to the HOT path, which checks the calendar, chooses the first available hour tomorrow, creates a Google Meet event and messages the lead by WhatsApp and email. Other leads receive a polite WhatsApp reply and the team receives an email.
 
-| Field | Required | Example |
-| --- | --- | --- |
-| `name` | Yes | Alex Patel |
-| `phone` | Yes | +919876543210 |
-| `email` | Yes | alex@example.com |
-| `budget` | Yes | 80 lakh |
-| `location` | Yes | Shela, Ahmedabad |
-| `property_type` | Yes | 3 BHK flat |
-| `message` | No | Looking for a family home |
-| `purpose` | No | Self-use |
-| `timeline` | No | Within 30 days |
-| `source` | No | Website enquiry |
+## 4. How it works
 
-Phone numbers must use international E.164 format. The workflow stops with an error if required information is missing or phone/email validation fails.
+| Part | Node | What it does |
+|---|---|---|
+| Receive | Webhook1 | Receives a POST request on the `real-estate` path. |
+| Validate | Code in JavaScript3 | Requires name, phone, email, budget, location and property type; validates phone and email; extracts BHK when available; stops on invalid data. |
+| Duplicate check | Get row(s) in sheet1 + Code in JavaScript4 | Reads the lead sheet and compares phone numbers after removing spaces and symbols. |
+| Duplicate handling | If1 + HTTP Request1 | New leads continue to scoring; duplicates receive a WhatsApp message saying the enquiry already exists. |
+| Score | Basic LLM Chain1 + Google Gemini Chat Model1 | Scores the lead from 0–100 using five criteria and returns structured JSON. The document identifies the model as `gemini-3.1-pro-preview`. |
+| Parse | Structured Output Parser1 | Requires fields such as `lead_score`, `qualification_status`, `budget_assessment`, `timeline`, `intent_strength`, `property_recommendations`, `follow_up_message` and `key_insights`. |
+| Save | Append row in sheet1 | Adds the lead and sets status to HOT for scores 80 or above, or COLD below 80. |
+| Route | Switch1 | Sends scores 80+ to HOT; all lower scores take the other path. |
+| HOT calendar | Get many events1 + Code in JavaScript5 | Reads calendar events for the next 7 days and checks tomorrow from 9 AM to 5 PM in one-hour slots. If all are busy, uses 10 AM the day after tomorrow. |
+| HOT meeting | Create an event1 | Creates the site-visit event with a Google Meet link, adds the lead as attendee and includes score, insights and suggested properties. |
+| HOT follow-up | WhatsApp HOT + Email Lead - Meeting Link | Sends the lead the meeting date, time and location/link. |
+| HOT record and alert | Update row in sheet + Send a message | Updates Meeting Slot and Notes in the sheet, and emails the team the HOT lead details and meeting link. |
+| Other leads | WhatsApp COLD + Email COLD | Sends a thank-you message to the lead and emails the team the lead details, score and AI insights. |
 
-## 5. AI Scoring Rules
+## 5. What happens to each enquiry
 
-The prompt awards up to 20 points for each of these criteria:
+| Case | Designed behavior |
+|---|---|
+| New lead, score 80 or more (HOT) | Saves the lead, books the first free hour tomorrow with a Meet link, sends WhatsApp and email confirmations, updates the sheet and emails the team. |
+| New lead, score below 80 (COLD) | Saves the lead as COLD, sends a thank-you WhatsApp message and emails the team. |
+| Phone number already in the sheet | Does not score or save the lead again; sends a WhatsApp message that the team will contact them. |
+| Missing or invalid data | Validator stops the run and identifies the missing field or invalid phone/email. |
 
-- Budget clearly specified
-- Preferred location clearly specified
-- Property type specified
-- Timeline within 30 days
-- Readiness for a site visit or immediate purchase
+## 6. Rules the workflow follows
 
-| Score | Lead level | Intended handling |
-| --- | --- | --- |
-| 80–100 | HOT | Schedule a meeting and send priority follow-up |
-| 50–79 | WARM | Save the lead and send the general acknowledgement |
-| 0–49 | COLD | Save the lead and send the general acknowledgement |
+- **Required fields:** `name`, `phone`, `email`, `budget`, `location`, `property_type`.
+- **Optional fields:** `message`, `purpose`, `timeline`, `source`.
+- **Scoring:** 0–100, with 20 points each for clear budget, clear location, stated property type, timeline within 30 days, and readiness for a site visit or immediate purchase.
+- **Lead levels:** HOT 80–100; COLD 0–79. The Switch separates scores 80+ from the rest.
+- **Meeting slot:** One hour tomorrow between 9 AM and 5 PM India time, choosing the first available slot. If none is free, use 10 AM the day after tomorrow.
+- **Duplicates:** Match phone numbers after removing spaces and symbols.
+- **AI output:** Valid JSON matching the configured schema, with up to three property suggestions and two to three insights.
 
-The AI response is constrained to a JSON structure containing the score, qualification status, budget assessment, timeline, intent strength, up to three property recommendations, a follow-up message, and key insights.
+## 7. Data in Google Sheets and Calendar
 
-## 6. Duplicate Handling
+The `Lead_Name_Sheet` spreadsheet is expected to contain: Lead Name, Phone Number, Email, Message, Budget, Location, Property Type, BHK, Purpose, Timeline, Lead Status, Created At, Meeting Slot and Notes. Each new lead is added, and HOT lead rows are updated after scheduling.
 
-The workflow reads the existing lead sheet and compares phone numbers after stripping spaces and symbols. If the phone number already exists, the lead is not scored or added again. A WhatsApp message informs the prospect that the enquiry is already recorded and the team will contact them.
+Google Calendar is checked for the next seven days before booking. The webhook input fields are:
 
-## 7. Meeting Scheduling
+| Field | Requirement | Example or note |
+|---|---|---|
+| `name` | Required | Customer name |
+| `phone` | Required | Include country code, e.g. `+919876543210` |
+| `email` | Required | Valid email address |
+| `budget` | Required | e.g. `80 lakh` |
+| `location` | Required | Preferred area or city |
+| `property_type` | Required | e.g. `3 BHK flat` |
+| `message`, `purpose`, `timeline`, `source` | Optional | Source defaults to Direct Enquiry; other optional values may be unspecified. |
 
-For HOT leads, the workflow reads calendar events, checks one-hour slots for tomorrow from 9:00 AM through 5:00 PM India time, and selects the first available slot. If no slot is free, it falls back to 10:00 AM the following day. It then creates a calendar event, adds the prospect as an attendee, includes Google Meet details, messages the prospect, updates the sheet, and sends email notifications.
+## 8. Tools and technologies
 
-**Important:** The slot finder is not a transactional lock. Two simultaneous executions could select the same slot. Sundays and holidays are not excluded by the current logic.
+| Tool | Used for | Why |
+|---|---|---|
+| n8n | Workflow orchestration | Connects webhook, AI, Sheets, Calendar, WhatsApp and Gmail. |
+| Google Gemini | Lead scoring and follow-up content | Produces a structured score for routing. |
+| Google Sheets | Lead list and duplicate check | Gives the sales team a reviewable record. |
+| Google Calendar | Slot check and Meet event | Helps avoid calendar clashes and provides a meeting link. |
+| WhatsApp | First reply to the lead | Familiar customer communication channel. |
+| Gmail | Lead confirmations and team alerts | Keeps the team informed. |
 
-## 8. Google Sheets
+## 9. Scenarios the workflow is built to handle
 
-The lead sheet is expected to contain these columns:
+These are designed behaviors; test results are not included in the document.
 
-- Lead Name
-- Phone Number
-- Email
-- Message
-- Budget
-- Location
-- Property Type
-- BHK
-- Purpose
-- Timeline
-- Lead Status
-- Created At
-- Meeting Slot
-- Notes
+| Scenario | Designed behavior |
+|---|---|
+| Phone number lacks country code | Validator stops and identifies the bad phone number. |
+| Same person submits twice | Second enquiry is not scored or saved; the lead receives an already-received message. |
+| Strong lead with clear details and readiness to visit | Scores 80+, meeting is booked and lead is messaged/emailed. |
+| Early researcher with vague timeline | Scores lower, is saved, receives a thank-you message and triggers a team email. |
+| Every slot tomorrow is busy | Schedules for 10 AM the day after tomorrow. |
+| Calendar has no events | Books the 9 AM slot tomorrow. |
 
-The workflow reads existing rows for duplicate detection, appends each new lead, and updates the meeting slot and notes for HOT leads.
+## 10. Human approval and safety points
 
-## 9. Connected Services
+- Nothing is saved or sent until phone and email pass validation.
+- A repeat enquiry does not create a second row or meeting.
+- The team receives an email for every lead.
+- There is no human approval step before a HOT meeting is booked; the team can cancel it in Calendar if needed.
+- AI output is constrained to a fixed JSON format before messages are sent.
 
-| Service | Role |
-| --- | --- |
-| n8n | Orchestrates the workflow |
-| Google Gemini | Scores leads and generates follow-up content |
-| Google Sheets | Stores leads and supports duplicate detection |
-| Google Calendar | Checks availability and creates meeting events |
-| WhatsApp Business Platform | Sends lead-facing messages |
-| Gmail | Sends lead confirmations and internal alerts |
+## 11. Limitations and production needs
 
-## 10. Test Scenarios
+- This document does not include recorded test results. Run the scenarios in section 9 before go-live.
+- Business-initiated WhatsApp messages may require an approved template; plain text messages may not be delivered outside the 24-hour window.
+- The webhook has no response node, so validation errors are visible in n8n executions rather than returned to the sender.
+- Meetings are scheduled for tomorrow or the day after; Sundays and holidays are not excluded.
+- Two simultaneous leads could receive the same slot. The calendar read has no start date and also reads older events.
+- The entire lead sheet is read for each enquiry, which may slow duplicate checks as the sheet grows.
+- Team alerts and the calendar are configured for one Google account. Use an approved shared team inbox and calendar.
+- The model is a preview version (`gemini-3.1-pro-preview`) and may change or be withdrawn.
+- Names, phone numbers and email addresses are personal data; restrict access to the sheet and calendar.
 
-Test these scenarios before production use:
+## 12. Key learnings and improvements
 
-1. A valid new lead with a score of 80 or above.
-2. A valid lead with a score below 80.
-3. A repeated phone number.
-4. Missing required fields.
-5. Invalid phone number or email.
-6. A calendar with no events.
-7. A calendar where all preferred slots are occupied.
-8. Confirmation that the correct lead row is updated after a meeting is created.
-
-The scenarios above describe intended behavior; test results are not included in this document.
-
-## 11. Known Limitations and Production Checklist
-
-- There is no separate WARM branch. WARM leads are handled by the same lower-score path as COLD leads, although their sheet status remains WARM.
-- The lower-score email node is named “Email COLD,” even for WARM leads.
-- Business-initiated WhatsApp messages may require an approved message template, depending on the conversation window and WhatsApp policy.
-- The webhook has no response node, so callers do not receive a structured success or validation-error response.
-- Calendar scheduling does not exclude Sundays or holidays and may have race conditions under concurrent requests.
-- The entire lead sheet is read for each duplicate check, which may become slow as the sheet grows.
-- The current workflow uses a specific calendar and team email. Replace these with an approved shared team calendar and inbox.
-- The configured Gemini model is a preview model and may change availability.
-- Limit access to sheets and calendars containing names, phone numbers, email addresses, budgets, and other personal information.
-
-Before go-live, test every scenario, review the scoring prompt, add a dedicated WARM path, configure approved WhatsApp templates, add a webhook response, and secure all credentials.
-
-## 12. Security
-
-The workflow JSON committed to a public repository must not contain live API keys, access tokens, OAuth secrets, personal contact details, or real customer records. Reconnect credentials inside n8n and use placeholder values for spreadsheet IDs and phone-number IDs in public files.
+One 0–100 score is used to keep routing, sheet status and messages aligned. Recommended improvements are approved WhatsApp templates, a Respond to Webhook node for validation errors, skipping Sundays and holidays, a shared team inbox, meeting reminders and faster duplicate lookup.
 
 ---
 
