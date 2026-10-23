@@ -1,0 +1,971 @@
+{
+  "name": "Real Estate - Lead Workflow (HOT + WARM Reply Scheduler)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "real-estate",
+        "options": {}
+      },
+      "id": "04dd1911-5e72-4e1e-9577-53bd108a8c3d",
+      "name": "Webhook1",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -2320,
+        -480
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// LEAD VALIDATOR - v4\n// Validates required fields, phone (E.164) and email format.\n// Outputs a clean lead object used by ALL downstream nodes.\n\nconst body = $input.first().json.body || {};\n\nconst required = ['name', 'phone', 'email', 'budget', 'location', 'property_type'];\nconst missing = required.filter(f => !body[f] || String(body[f]).trim() === '');\nif (missing.length > 0) {\n  throw new Error('Validation Failed - Missing required fields: ' + missing.join(', '));\n}\n\nconst phone = String(body.phone).replace(/\\s+/g, '');\nif (!/^\\+[1-9]\\d{9,14}$/.test(phone)) {\n  throw new Error('Invalid phone format. Use E.164 (e.g. +919876543210). Got: ' + phone);\n}\n\nconst email = String(body.email).trim().toLowerCase();\nif (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) {\n  throw new Error('Invalid email format: ' + body.email);\n}\n\nconst propertyType = String(body.property_type).trim();\nconst message = String(body.message || '').trim();\nconst bhkMatch = (propertyType + ' ' + message).match(/(\\d+(?:\\.\\d+)?)\\s*-?\\s*BHK/i);\n\nreturn [{\n  json: {\n    name: String(body.name).trim(),\n    phone,\n    phone_digits: phone.replace(/\\D/g, ''),   // WhatsApp ko sirf digits chahiye\n    email,\n    budget: String(body.budget).trim(),\n    location: String(body.location).trim(),\n    property_type: propertyType,\n    bhk: bhkMatch ? bhkMatch[1] : '',\n    purpose: String(body.purpose || 'Not specified').trim(),\n    timeline: String(body.timeline || 'Not specified').trim(),\n    message,\n    source: String(body.source || 'Direct Enquiry').trim(),\n    validated_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "3bbfa627-d5d8-424d-bb80-8995a8f01e30",
+      "name": "Code in JavaScript3",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2368,
+        -144
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Lead_Name_Sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 668698733,
+          "mode": "list",
+          "cachedResultName": "Lead Name",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=YOUR_SHEET_TAB_ID"
+        },
+        "filtersUI": {
+          "values": []
+        },
+        "options": {}
+      },
+      "id": "c9148f6c-ec1c-4d7c-b1de-1eee91e2abbf",
+      "name": "Get row(s) in sheet1",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -2352,
+        160
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// DUPLICATE REAL ESTATE LEAD CHECKER\n// Checks whether the incoming phone number already exists\n// in the Real Estate CRM Google Sheet.\n\n// Get the current lead from the first Code node\nconst lead = $('Code in JavaScript3').first().json;\n\n// Get incoming phone number\nconst phone = String(\n  lead.phone || ''\n).replace(/\\D/g, '');\n\n// Get all existing leads from Google Sheets\nconst allRows = $input.all();\n\nlet isDuplicate = false;\nlet existingInfo = null;\n\n// Check every existing lead\nfor (const row of allRows) {\n\n  // Phone Number column from Google Sheet\n  const rowPhone = String(\n    row.json['Phone Number'] || ''\n  ).replace(/\\D/g, '');\n\n  // Compare phone numbers\n  if (rowPhone === phone && phone !== '') {\n\n    isDuplicate = true;\n\n    existingInfo = {\n      name: row.json['Lead Name'] || 'Unknown',\n      email: row.json['Email'] || 'Unknown',\n      status: row.json['Lead Status'] || 'Unknown',\n      location: row.json['Location'] || 'Unknown',\n      property_type: row.json['Property Type'] || 'Unknown',\n      budget: row.json['Budget'] || 'Unknown',\n      bhk: row.json['BHK'] || 'Unknown',\n      purpose: row.json['Purpose'] || 'Unknown',\n      timeline: row.json['Timeline'] || 'Unknown',\n      created_at: row.json['Created At'] || 'Unknown'\n    };\n\n    break;\n  }\n}\n\n// Return result\nreturn [\n  {\n    json: {\n      is_duplicate: isDuplicate,\n      existing_info: existingInfo,\n      phone: phone\n    }\n  }\n];"
+      },
+      "id": "9589a6ef-fbcf-454c-a77d-b0f526a62f85",
+      "name": "Code in JavaScript4",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2144,
+        48
+      ],
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "2d7e306b-c6d8-46bf-b5bb-fcc38393c146",
+              "leftValue": "={{ $json.is_duplicate }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e6bb067c-bf8b-42ec-ac1c-cb9c526957bf",
+      "name": "If1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1952,
+        48
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are an expert real estate lead qualification AI agent.\n\nAnalyze the following lead information and return a comprehensive qualification score.\n\n--- LEAD DETAILS ---\nName: {{ $('Webhook1').first().json.body.name }}\nPhone: {{ $('Webhook1').first().json.body.phone }}\nEmail: {{ $('Webhook1').first().json.body.email }}\nBudget: {{ $('Webhook1').first().json.body.budget }}\nPreferred Location: {{ $('Webhook1').first().json.body.location }}\nProperty Type: {{ $('Webhook1').first().json.body.property_type }}\nPurpose: {{ $('Webhook1').first().json.body.purpose }}\nTimeline: {{ $('Webhook1').first().json.body.timeline }}\nMessage: {{ $('Webhook1').first().json.body.message }}\n\n--- SCORING RULES (Total: 0-100) ---\n+20 pts  Budget is clearly specified\n+20 pts  Location is clearly specified\n+20 pts  Property type is specified\n+20 pts  Timeline is within 30 days\n+20 pts  Lead is ready for site visit or immediate purchase\n\n--- QUALIFICATION THRESHOLDS ---\nHOT  (80-100): Ready to buy, needs urgent follow-up\nWARM (50-79): Interested but needs nurturing\nCOLD (0-49): Early research, send informational content\n\n--- OUTPUT FORMAT ---\nReturn ONLY valid JSON matching the required schema, with no extra text and no markdown. Fields:\nlead_score (0-100), qualification_status (\"HOT\" | \"WARM\" | \"COLD\"), budget_assessment, timeline, intent_strength, property_recommendations (array of up to 3 strings), follow_up_message (short, friendly message for the lead), key_insights (array of 2-3 short strings).",
+        "hasOutputParser": true,
+        "batching": {}
+      },
+      "id": "f1adfdd6-922f-435e-b53c-ff7fd7a8aaca",
+      "name": "Basic LLM Chain1",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        -1744,
+        -464
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.1-pro-preview",
+        "options": {}
+      },
+      "id": "558c5fb3-8341-48c1-a471-ed220b4092aa",
+      "name": "Google Gemini Chat Model1",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        -1744,
+        -192
+      ]
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"lead_score\": 85,\n  \"qualification_status\": \"HOT\",\n  \"budget_assessment\": \"HIGH\",\n  \"timeline\": \"30 days\",\n  \"intent_strength\": \"HIGH\",\n  \"property_recommendations\": [\n    \"Green Valley Residency \\u2014 3BHK\",\n    \"Sky Heights Premium \\u2014 2BHK\",\n    \"Sunshine Apartments \\u2014 3BHK\"\n  ],\n  \"follow_up_message\": \"Thank you for your interest! Based on your requirements, we have excellent properties that match perfectly.\",\n  \"key_insights\": [\n    \"Budget clearly specified \\u2014 qualifies for premium segment\",\n    \"Ready for immediate site visit\",\n    \"Purchase timeline within 30 days\"\n  ]\n}"
+      },
+      "id": "9423b1da-7a8d-472c-85ef-070303282441",
+      "name": "Structured Output Parser1",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        -1600,
+        -208
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Lead_Name_Sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 668698733,
+          "mode": "list",
+          "cachedResultName": "Lead Name",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=YOUR_SHEET_TAB_ID"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Lead Name": "={{ $('Code in JavaScript3').first().json.name }}",
+            "Phone Number": "={{ $('Code in JavaScript3').first().json.phone }}",
+            "Email": "={{ $('Code in JavaScript3').first().json.email }}",
+            "Message": "={{ $('Code in JavaScript3').first().json.message }}",
+            "Budget": "={{ $('Code in JavaScript3').first().json.budget }}",
+            "Location": "={{ $('Code in JavaScript3').first().json.location }}",
+            "Property Type": "={{ $('Code in JavaScript3').first().json.property_type }}",
+            "BHK": "={{ $('Code in JavaScript3').first().json.bhk }}",
+            "Purpose": "={{ $('Code in JavaScript3').first().json.purpose }}",
+            "Timeline": "={{ $('Code in JavaScript3').first().json.timeline }}",
+            "Lead Status": "={{ ((s) => s >= 80 ? 'HOT' : (s >= 50 ? 'WARM' : 'COLD'))(Number($('Basic LLM Chain1').first().json.output.lead_score)) }}",
+            "Created At": "={{ $now.toFormat('dd LLL yyyy, hh:mm a') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Lead Name",
+              "displayName": "Lead Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Phone Number",
+              "displayName": "Phone Number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Message",
+              "displayName": "Message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Budget",
+              "displayName": "Budget",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Location",
+              "displayName": "Location",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Property Type",
+              "displayName": "Property Type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "BHK",
+              "displayName": "BHK",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Purpose",
+              "displayName": "Purpose",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Timeline",
+              "displayName": "Timeline",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Lead Status",
+              "displayName": "Lead Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Created At",
+              "displayName": "Created At",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "5480f1a4-63f5-4090-be49-e877c22421b8",
+      "name": "Append row in sheet1",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -1376,
+        -464
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "ea766665-69f7-4850-8b82-af78d27df529",
+                    "leftValue": "={{ Number($('Basic LLM Chain1').first().json.output.lead_score) }}",
+                    "rightValue": 80,
+                    "operator": {
+                      "type": "number",
+                      "operation": "gte"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "HOT"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "bd84a0a1-0686-4ac2-9b68-8276f04a6f9f",
+                    "leftValue": "={{ Number($('Basic LLM Chain1').first().json.output.lead_score) }}",
+                    "rightValue": 80,
+                    "operator": {
+                      "type": "number",
+                      "operation": "lt"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "d851a5a1-0700-496e-8844-324664bb4747",
+      "name": "Switch1",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -1360,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "value": "YOUR_EMAIL@example.com",
+          "mode": "list",
+          "cachedResultName": "YOUR_EMAIL@example.com"
+        },
+        "returnAll": true,
+        "timeMax": "={{ $now.plus({ days: 7 }) }}",
+        "options": {}
+      },
+      "id": "4d443af0-2be6-4043-bd5c-d9bf816336fe",
+      "name": "Get many events1",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        -1056,
+        -80
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// CALENDAR CONFLICT CHECKER + FREE SLOT FINDER (IST)\n// Tries tomorrow: 9 AM -> 5 PM (1-hour slots, ends by 6 PM)\n// Fallback: day after tomorrow at 10 AM if all slots are taken\n\nconst events = $input.all().map(i => i.json).filter(e => e.start); // may be empty = no conflicts\nconst busy = events.map(e => ({\n  start: new Date(e.start.dateTime || e.start.date),\n  end: new Date(e.end.dateTime || e.end.date)\n}));\n\nconst IST = 5.5 * 60 * 60 * 1000;\nconst nowIST = new Date(Date.now() + IST);\n\nfunction makeSlot(dayOffset, hour) {\n  const start = new Date(Date.UTC(\n    nowIST.getUTCFullYear(),\n    nowIST.getUTCMonth(),\n    nowIST.getUTCDate() + dayOffset,\n    hour, 0, 0\n  ) - IST);\n  const end = new Date(start.getTime() + 60 * 60000);\n  return { start, end, hour };\n}\n\nfunction label(hour) {\n  const h12 = hour % 12 || 12;\n  return `${h12}:00 ${hour < 12 ? 'AM' : 'PM'}`;\n}\n\nfunction dateLabel(d) {\n  return d.toLocaleDateString('en-IN', {\n    timeZone: 'Asia/Kolkata',\n    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'\n  });\n}\n\nconst hours = [9, 10, 11, 12, 13, 14, 15, 16, 17];\nlet chosen = null;\nlet fallback = false;\n\nfor (const h of hours) {\n  const s = makeSlot(1, h);\n  const clash = busy.some(b => s.start < b.end && s.end > b.start);\n  if (!clash) { chosen = s; break; }\n}\n\nif (!chosen) {\n  chosen = makeSlot(2, 10);\n  fallback = true;\n}\n\nreturn [{\n  json: {\n    slot_start: chosen.start.toISOString(),\n    slot_end: chosen.end.toISOString(),\n    slot_time: label(chosen.hour),\n    slot_date: dateLabel(chosen.start),\n    slot_found: true,\n    is_fallback: fallback,\n    conflicts_found: busy.length,\n    slot_hour: chosen.hour\n  }\n}];"
+      },
+      "id": "7efe2d58-1f00-4d2c-8663-57104dddc8b4",
+      "name": "Code in JavaScript5",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -768,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "calendar": {
+          "__rl": true,
+          "value": "YOUR_EMAIL@example.com",
+          "mode": "list",
+          "cachedResultName": "YOUR_EMAIL@example.com"
+        },
+        "start": "={{ $json.slot_start }}",
+        "end": "={{ $json.slot_end }}",
+        "additionalFields": {
+          "attendees": [
+            "={{ $('Code in JavaScript3').first().json.email }}"
+          ],
+          "conferenceDataUi": {
+            "conferenceDataValues": {
+              "conferenceSolution": "hangoutsMeet"
+            }
+          },
+          "description": "=🔥 HOT LEAD — Auto-booked by AI Lead Qualification System\n👤 Client: {{ $('Code in JavaScript3').first().json.name }}\n📞 Phone: {{ $('Code in JavaScript3').first().json.phone }}\n📧 Email: {{ $('Code in JavaScript3').first().json.email }}\n💰 Budget: {{ $('Code in JavaScript3').first().json.budget }}\n📍 Location: {{ $('Code in JavaScript3').first().json.location }}\n🏠 Property Type: {{ $('Code in JavaScript3').first().json.property_type }}\n⏰ Timeline: {{ $('Basic LLM Chain1').first().json.output.timeline }}\n🎯 AI Score: {{ $('Basic LLM Chain1').first().json.output.lead_score }}/100\n💪 Intent: {{ $('Basic LLM Chain1').first().json.output.intent_strength }}\n🏘️ Recommended Properties:\n▸ {{ $('Basic LLM Chain1').first().json.output.property_recommendations?.[0] }}\n▸ {{ $('Basic LLM Chain1').first().json.output.property_recommendations?.[1] }}\n▸ {{ $('Basic LLM Chain1').first().json.output.property_recommendations?.[2] }}\n💡 AI Insights:\n▸ {{ $('Basic LLM Chain1').first().json.output.key_insights?.[0] }}\n▸ {{ $('Basic LLM Chain1').first().json.output.key_insights?.[1] }}\n📝 AI Message: {{ $('Basic LLM Chain1').first().json.output.follow_up_message }}\n✅ Slot conflict check passed — {{ $json.conflicts_found }} existing event(s) checked",
+          "sendUpdates": "none",
+          "summary": "=Property Site Visit - {{ $('Code in JavaScript3').first().json.name }} (AI Score: {{ $('Basic LLM Chain1').first().json.output.lead_score }}/100)"
+        }
+      },
+      "id": "111c7bbe-b7db-4b71-9cc7-2d844a6026a3",
+      "name": "Create an event1",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        -512,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "YOUR_WHATSAPP_PHONE_NUMBER_ID",
+        "recipientPhoneNumber": "={{ $('Code in JavaScript3').first().json.phone_digits }}",
+        "textBody": "=Hi {{ $('Code in JavaScript3').first().json.name }}, 👋\n\n{{ $('Basic LLM Chain1').first().json.output.follow_up_message }}\n\n✅ Your meeting has been scheduled:\n📅 {{ $('Code in JavaScript5').first().json.slot_date }}, {{ $('Code in JavaScript5').first().json.slot_time }}\n📍 Location: {{ $('Code in JavaScript3').first().json.location }}\n\n📧 The meeting link has been sent to your email: {{ $('Code in JavaScript3').first().json.email }}\n\n",
+        "additionalFields": {}
+      },
+      "id": "d428cba8-34ef-49fc-8891-f2e073e0b205",
+      "name": "WhatsApp HOT",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        -480,
+        208
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "sendTo": "YOUR_EMAIL@example.com",
+        "subject": "=🔥 New HOT Lead: {{ $('Code in JavaScript3').first().json.name }} - {{ $('Code in JavaScript3').first().json.location }}",
+        "emailType": "text",
+        "message": "=New HOT Lead 🔥\n\nName: {{ $('Code in JavaScript3').first().json.name }}\nPhone: {{ $('Code in JavaScript3').first().json.phone }}\nEmail: {{ $('Code in JavaScript3').first().json.email }}\nBudget: {{ $('Code in JavaScript3').first().json.budget }}\nLocation: {{ $('Code in JavaScript3').first().json.location }}\nProperty Type: {{ $('Code in JavaScript3').first().json.property_type }}\nPurpose: {{ $('Code in JavaScript3').first().json.purpose }}\nTimeline: {{ $('Code in JavaScript3').first().json.timeline }}\n\nMeeting Slot: {{ $('Code in JavaScript5').first().json.slot_date }}, {{ $('Code in JavaScript5').first().json.slot_time }}\nAI Score: {{ $('Basic LLM Chain1').first().json.output.lead_score }}/100\nMeeting Link: {{ $('Create an event1').first().json.hangoutLink || $('Create an event1').first().json.conferenceData?.entryPoints?.[0]?.uri || $('Create an event1').first().json.htmlLink }}\n\nMessage: {{ $('Code in JavaScript3').first().json.message }}",
+        "options": {}
+      },
+      "id": "abd697e1-3efd-42fe-bf4a-66ea2b53f719",
+      "name": "Send a message",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        -256,
+        496
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "=YOUR_WHATSAPP_PHONE_NUMBER_ID",
+        "recipientPhoneNumber": "={{ $('Code in JavaScript3').first().json.phone_digits }}",
+        "textBody": "=Hi {{ $('Code in JavaScript3').first().json.name }}, 👋\n\nThank you for your interest! 🙏 We have received your enquiry and saved your details. Our team will share more information on properties matching your needs. Whenever you are ready, feel free to reach out to us.\n\n",
+        "additionalFields": {}
+      },
+      "id": "e4bb3c5d-0fa7-41e7-b533-7869996fa7b4",
+      "name": "WhatsApp COLD",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        -1296,
+        192
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "sendTo": "YOUR_EMAIL@example.com",
+        "subject": "=🔵 New COLD Lead: {{ $('Code in JavaScript3').first().json.name }} - {{ $('Code in JavaScript3').first().json.location }}",
+        "emailType": "text",
+        "message": "=New COLD Lead received!\n\nName: {{ $('Code in JavaScript3').first().json.name }}\nPhone: {{ $('Code in JavaScript3').first().json.phone }}\nEmail: {{ $('Code in JavaScript3').first().json.email }}\nBudget: {{ $('Code in JavaScript3').first().json.budget }}\nLocation: {{ $('Code in JavaScript3').first().json.location }}\nProperty Type: {{ $('Code in JavaScript3').first().json.property_type }}\nTimeline: {{ $('Code in JavaScript3').first().json.timeline }}\nAI Score: {{ $('Basic LLM Chain1').first().json.output.lead_score }}/100\nInsights: {{ ($('Basic LLM Chain1').first().json.output.key_insights || []).join(' | ') }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "047be5e1-e727-474e-90d7-78a40578976e",
+      "name": "Email COLD",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        -1120,
+        192
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v24.0/YOUR_WHATSAPP_PHONE_NUMBER_ID/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "whatsAppApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"to\": \"{{ $('Code in JavaScript3').first().json.phone_digits }}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"body\": \"We already have an inquiry from this number in our system. Our team will contact you shortly.\"\n  }\n}",
+        "options": {}
+      },
+      "id": "b76d3ef3-bcca-4d97-8750-1974431080d8",
+      "name": "HTTP Request1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -1712,
+        144
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Lead_Name_Sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 668698733,
+          "mode": "list",
+          "cachedResultName": "Lead Name",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=YOUR_SHEET_TAB_ID"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Phone Number": "={{ $('Code in JavaScript3').first().json.phone }}",
+            "Meeting Slot": "={{ $('Code in JavaScript5').first().json.slot_date }}, {{ $('Code in JavaScript5').first().json.slot_time }}",
+            "Notes": "=Meeting scheduled for {{ $('Code in JavaScript5').first().json.slot_date }}, {{ $('Code in JavaScript5').first().json.slot_time }} (IST) | Meet link: {{ $('Create an event1').first().json.hangoutLink || $('Create an event1').first().json.conferenceData?.entryPoints?.[0]?.uri || $('Create an event1').first().json.htmlLink }}"
+          },
+          "matchingColumns": [
+            "Phone Number"
+          ],
+          "schema": [
+            {
+              "id": "Lead Name",
+              "displayName": "Lead Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Phone Number",
+              "displayName": "Phone Number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Message",
+              "displayName": "Message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Budget",
+              "displayName": "Budget",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Location",
+              "displayName": "Location",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Property Type",
+              "displayName": "Property Type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "BHK",
+              "displayName": "BHK",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Purpose",
+              "displayName": "Purpose",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Timeline",
+              "displayName": "Timeline",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Lead Status",
+              "displayName": "Lead Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Created At",
+              "displayName": "Created At",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Notes",
+              "displayName": "Notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Meeting Slot",
+              "displayName": "Meeting Slot",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -272,
+        208
+      ],
+      "id": "1169454d-2227-4cf1-a102-2c2e5ca3bde7",
+      "name": "Update row in sheet",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Code in JavaScript3').first().json.email }}",
+        "subject": "=Your Site Visit is Confirmed - {{ $('Code in JavaScript5').first().json.slot_date }}, {{ $('Code in JavaScript5').first().json.slot_time }}",
+        "emailType": "text",
+        "message": "=Hi {{ $('Code in JavaScript3').first().json.name }},\n\nThank you for your interest! Your meeting has been scheduled.\n\nDate & Time: {{ $('Code in JavaScript5').first().json.slot_date }}, {{ $('Code in JavaScript5').first().json.slot_time }} (IST)\nProperty Location: {{ $('Code in JavaScript3').first().json.location }}\n\nMeeting Link (Google Meet):\n{{ $('Create an event1').first().json.hangoutLink || $('Create an event1').first().json.conferenceData?.entryPoints?.[0]?.uri || $('Create an event1').first().json.htmlLink }}\n\nPlease join using the link above at the scheduled time. To reschedule, just reply to this email.\n\n- Team Optimity Logics",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "83ae45cf-dcba-48eb-a2fe-8e0e27bc5c4c",
+      "name": "Email Lead - Meeting Link",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        -528,
+        496
+      ],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Webhook1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript3": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript4": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain1": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser1": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Basic LLM Chain1",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append row in sheet1": {
+      "main": [
+        [
+          {
+            "node": "Switch1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch1": {
+      "main": [
+        [
+          {
+            "node": "Get many events1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "WhatsApp COLD",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many events1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript5": {
+      "main": [
+        [
+          {
+            "node": "Create an event1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create an event1": {
+      "main": [
+        [
+          {
+            "node": "WhatsApp HOT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp HOT": {
+      "main": [
+        [
+          {
+            "node": "Update row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp COLD": {
+      "main": [
+        [
+          {
+            "node": "Email COLD",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update row in sheet": {
+      "main": [
+        [
+          {
+            "node": "Email Lead - Meeting Link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Lead - Meeting Link": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "triggerCount": 0,
+  "meta": null
+}
